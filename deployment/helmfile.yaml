@@ -6,10 +6,10 @@ releases:
     createNamespace: true
 
     values:
-      - ./values/{{ .Environment.Name }}.yaml
+      - image:
+          name: volume-admission
+          tag: latest
+          pullPolicy: Never
 
-# Specify an environment for each project.
 environments:
-  tools: {}
-  toolsbeta: {}
   local: {}

@@ -9,10 +9,10 @@ webhooks:
     clientConfig:
       service:
         name: volume-admission
-        namespace: {{ .Release.Namespace }}
+        namespace: "{{ .Release.Namespace }}"
         path: "/"
       caBundle: ""  # injected by cert-manager
-    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    failurePolicy: "{{ .Values.webhook.failurePolicy }}"
     matchPolicy: Equivalent
     sideEffects: None
     admissionReviewVersions: ["v1"]
