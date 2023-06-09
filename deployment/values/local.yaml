@@ -1,4 +1,0 @@
-image:
-  name: volume-admission
-  tag: latest
-  pullPolicy: Never

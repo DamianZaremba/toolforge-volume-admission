@@ -5,7 +5,7 @@ metadata:
   labels:
     name: volume-admission
   annotations:
-    secret.reloader.stakater.com/reload: {{ .Values.webhook.secretName }}
+    secret.reloader.stakater.com/reload: "{{ .Values.webhook.secretName }}"
 spec:
   replicas: 2
   selector:
@@ -22,8 +22,8 @@ spec:
     spec:
       containers:
         - name: webhook
-          image: {{ .Values.image.name }}:{{ .Values.image.tag }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ .Values.image.name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: "{{ .Values.image.pullPolicy }}"
           env:
             - name: "DEBUG"
               value: "{{ .Values.debug }}"
@@ -41,7 +41,7 @@ spec:
       volumes:
         - name: webhook-certs
           secret:
-            secretName: {{ .Values.webhook.secretName }}
+            secretName: "{{ .Values.webhook.secretName }}"
         - name: volumes-config
           configMap:
             name: volumes-config
