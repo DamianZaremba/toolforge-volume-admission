@@ -1,8 +1,8 @@
 replicas: 2
 
 image:
-  name: docker-registry.tools.wmflabs.org/volume-admission
-  tag: latest
+  name: tools-harbor.wmcloud.org/toolforge/volume-admission
+  tag: OVERRIDEN_BY_CI
   pullPolicy: IfNotPresent
 
 resources:
