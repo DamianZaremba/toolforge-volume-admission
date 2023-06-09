@@ -1,7 +1,7 @@
 replicas: 2
 
 image:
-  name: docker-registry.tools.wmflabs.org/volume-admission
+  name: tools-harbor.wmcloud.org/toolforge/volume-admission
   tag: latest
   pullPolicy: IfNotPresent
 
