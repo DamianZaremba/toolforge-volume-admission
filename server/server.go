@@ -2,13 +2,14 @@ package server
 
 import (
 	"crypto/tls"
+	"io"
+	"net/http"
+
 	"github.com/sirupsen/logrus"
-	"io/ioutil"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/json"
-	"net/http"
 )
 
 // AdmissionController is an abstraction to work with the admission handler
@@ -24,7 +25,7 @@ type AdmissionControllerServer struct {
 
 func (acs *AdmissionControllerServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var body []byte
-	if data, err := ioutil.ReadAll(r.Body); err == nil {
+	if data, err := io.ReadAll(r.Body); err == nil {
 		body = data
 	}
 

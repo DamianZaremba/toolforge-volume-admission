@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -33,7 +32,7 @@ var (
 )
 
 func decodeResponse(body io.ReadCloser) (*admissionv1.AdmissionReview, error) {
-	response, _ := ioutil.ReadAll(body)
+	response, _ := io.ReadAll(body)
 	review := &admissionv1.AdmissionReview{}
 	decoder := serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
 	_, _, err := decoder.Decode(response, nil, review)
