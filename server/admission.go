@@ -11,6 +11,18 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 )
 
+const (
+	// MountConfigLabel is the label that can be used to configure
+	// which NFS volumes to mount in a pod.
+	MountConfigLabel = "toolforge.org/mount-storage"
+
+	// MountAll is the option for pods with all the available volumes
+	// mounted.
+	MountAll = "all"
+	// MountNone is the option for pods with no volumes mounted.
+	MountNone = "none"
+)
+
 // PatchOperation describes an operation done to modify a Kubernetes
 // resource
 type PatchOperation struct {
@@ -31,6 +43,15 @@ type Volume struct {
 // VolumeAdmission type is what does all the magic
 type VolumeAdmission struct {
 	Volumes []Volume
+}
+
+func getLabelOrDefault(pod corev1.Pod, label string, defaultValue string) string {
+	value, exists := pod.ObjectMeta.Labels[label]
+	if exists {
+		return value
+	}
+
+	return defaultValue
 }
 
 func hasMountByPath(container corev1.Container, path string) bool {
@@ -83,6 +104,38 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 
 	logrus.Debugf("AdmissionReview for Kind=%v, Namespace=%v Name=%v (%v) UID=%v patchOperation=%v UserInfo=%v",
 		req.Kind, req.Namespace, req.Name, pod.Name, req.UID, req.Operation, req.UserInfo)
+
+	mountConfig := getLabelOrDefault(pod, MountConfigLabel, MountAll)
+	if mountConfig != MountAll && mountConfig != MountNone {
+		review.Response = &admissionv1.AdmissionResponse{
+			UID:     review.Request.UID,
+			Allowed: false,
+			Result: &metav1.Status{
+				Message: fmt.Sprintf("Invalid value for %v label", MountConfigLabel),
+			},
+		}
+
+		return
+	}
+
+	if mountConfig == MountNone {
+		patchType := admissionv1.PatchTypeJSONPatch
+		response := &admissionv1.AdmissionResponse{
+			UID:       review.Request.UID,
+			Allowed:   true,
+			PatchType: &patchType,
+			Result: &metav1.Status{
+				Message: "No volumes requested",
+			},
+		}
+
+		// Add an empty patch
+		response.Patch, err = json.Marshal([]PatchOperation{})
+
+		review.Response = response
+
+		return
+	}
 
 	if !strings.HasPrefix(req.Namespace, "tool-") {
 		logrus.Warningf("Skipping non-tool namespace %v", req.Namespace)

@@ -64,6 +64,7 @@ type dummyRequestParams struct {
 	env          []byte
 	volumeMounts []byte
 	volumes      []byte
+	labels       []byte
 }
 
 func getDummyRequest(params dummyRequestParams) *admissionv1.AdmissionRequest {
@@ -79,7 +80,16 @@ func getDummyRequest(params dummyRequestParams) *admissionv1.AdmissionRequest {
 					"name": "maintain-kubeusers-123123123",
 					"namespace": "maintain-kubeusers",
 					"uid": "4b54be10-8d3c-11e9-8b7a-080027f5f85c",
-					"creationTimestamp": "2019-06-12T18:02:51Z"
+					"creationTimestamp": "2019-06-12T18:02:51Z",
+					"labels": {`)
+
+	labels := params.labels
+	if labels == nil {
+		labels = []byte(``)
+	}
+
+	headerSpec := []byte(`
+					}
 				},
 				"spec": {`)
 
@@ -135,7 +145,9 @@ func getDummyRequest(params dummyRequestParams) *admissionv1.AdmissionRequest {
 				}
 			}`)
 
-	rawObject := append(header, volumeConfig...)
+	rawObject := append(header, labels...)
+	rawObject = append(rawObject, headerSpec...)
+	rawObject = append(rawObject, volumeConfig...)
 	rawObject = append(rawObject, containers_header...)
 	rawObject = append(rawObject, env...)
 	rawObject = append(rawObject, volumeMounts...)
@@ -284,6 +296,44 @@ func TestServerMountsAllVolumesIfSomeExist(t *testing.T) {
 	}
 }
 
+func TestServerMountsAllVolumesIfSomeExistAndLabelIsSetToAll(t *testing.T) {
+	review, err := getResponse(admissionv1.AdmissionReview{
+		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(`"env": [],`),
+			volumeMounts: []byte(`
+				"volumeMounts": [
+					{
+						"mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+						"name": "default-token-abcde",
+						"readOnly": true
+					}
+				],
+			`),
+			volumes: []byte(`
+				"volumes": [
+					{
+						"name": "default-token-abcde",
+						"secret": {
+							"defaultMode": 420,
+							"secretName": "default-token-abcde"
+						}
+					}
+				],
+			`),
+			labels: []byte(`
+				"toolforge.org/mount-storage": "all"
+			`),
+		}),
+	})
+
+	var p = assertAllowedAndGetPatch(review, err, t)
+
+	if len(p) != 8 {
+		t.Errorf("Patch length %d does not match expected value of 8, got patches:\n%s", len(p), p)
+	}
+}
+
 func TestServerMountsNeededVolumes(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
@@ -417,5 +467,47 @@ func TestServerRemovesWorkingDirIfNO_HOMESet(t *testing.T) {
 
 	if !removeWorkingDirFound {
 		t.Errorf("Did not find a patch that removed the WorkingDir entry among %s", p)
+	}
+}
+
+func TestServerIgnoresWhenLabelsInstructsToDoThat(t *testing.T) {
+	review, err := getResponse(admissionv1.AdmissionReview{
+		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
+		Request: getDummyRequest(dummyRequestParams{
+			labels: []byte(`
+				"toolforge.org/mount-storage": "none"
+			`),
+		}),
+	})
+
+	p := assertAllowedAndGetPatch(review, err, t)
+
+	if len(p) != 0 {
+		t.Error("Should not contain anything to patch when nothing is done")
+	}
+}
+
+func TestServerFailsOnInvalidLabelValue(t *testing.T) {
+	review, err := getResponse(admissionv1.AdmissionReview{
+		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
+		Request: getDummyRequest(dummyRequestParams{
+			labels: []byte(`
+				"toolforge.org/mount-storage": "none-but-spelled-incorrecly"
+			`),
+		}),
+	})
+
+	t.Log(review.Response)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if review.Response.Allowed {
+		t.Error("Should not allow allow invalid label values")
+	}
+
+	if review.Response.Patch != nil {
+		t.Error("Should not contain patch when not allowed")
 	}
 }
