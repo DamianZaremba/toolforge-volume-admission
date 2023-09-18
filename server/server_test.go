@@ -59,10 +59,19 @@ func getResponse(request admissionv1.AdmissionReview) (*admissionv1.AdmissionRev
 	return decodeResponse(r.Body)
 }
 
-func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes []byte) *admissionv1.AdmissionRequest {
+type dummyRequestParams struct {
+	namespace    string
+	env          []byte
+	volumeMounts []byte
+	volumes      []byte
+}
+
+func getDummyRequest(params dummyRequestParams) *admissionv1.AdmissionRequest {
+	namespace := params.namespace
 	if namespace == "" {
 		namespace = "tool-test"
 	}
+
 	header := []byte(`{
 				"kind": "Pod",
 				"apiVersion": "v1",
@@ -73,8 +82,10 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 					"creationTimestamp": "2019-06-12T18:02:51Z"
 				},
 				"spec": {`)
-	if volumes == nil {
-		volumes = []byte(`
+
+	volumeConfig := params.volumes
+	if volumeConfig == nil {
+		volumeConfig = []byte(`
 					"volumes": [
 						{
 							"name": "home",
@@ -85,6 +96,7 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 						}
 					],`)
 	}
+
 	containers_header := []byte(`
 					"containers": [
 						{
@@ -92,6 +104,8 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 							"image": "docker-registry.tools.wmflabs.org/maintain-kubeusers:latest",
 							"workingDir": "/some/path",
 							"command": ["/app/venv/bin/python"],`)
+
+	env := params.env
 	if env == nil {
 		env = []byte(`
 							"env": [
@@ -101,6 +115,8 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 								}
 							],`)
 	}
+
+	volumeMounts := params.volumeMounts
 	if volumeMounts == nil {
 		volumeMounts = []byte(`
 							"volumeMounts": [
@@ -110,6 +126,7 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 								}
 							],`)
 	}
+
 	containers_footer := []byte(`
 							"args": ["/app/maintain_kubeusers.py"]
 						}
@@ -117,6 +134,14 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 	footer := []byte(`
 				}
 			}`)
+
+	rawObject := append(header, volumeConfig...)
+	rawObject = append(rawObject, containers_header...)
+	rawObject = append(rawObject, env...)
+	rawObject = append(rawObject, volumeMounts...)
+	rawObject = append(rawObject, containers_footer...)
+	rawObject = append(rawObject, footer...)
+
 	return &admissionv1.AdmissionRequest{
 		UID: "e911857d-c318-11e8-bbad-025000000001",
 		Kind: v1.GroupVersionKind{
@@ -125,14 +150,7 @@ func getDummyRequest(namespace string, env []byte, volumeMounts []byte, volumes 
 		Operation: "CREATE",
 		Namespace: namespace,
 		Object: runtime.RawExtension{
-			Raw: append(
-				header, append(
-					volumes, append(
-						containers_header, append(
-							env, append(
-								volumeMounts, append(
-									containers_footer,
-									footer...)...)...)...)...)...),
+			Raw: rawObject,
 		},
 	}
 }
@@ -163,7 +181,10 @@ func assertAllowedAndGetPatch(review *admissionv1.AdmissionReview, err error, t 
 func TestServerIgnoresNonToolPods(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
-		Request:  getDummyRequest("maintain-kubeusers", []byte(`"env": [],`), []byte(``), []byte(``)),
+		Request: getDummyRequest(dummyRequestParams{
+			namespace: "maintain-kubeusers",
+			env:       []byte(`"env": [],`),
+		}),
 	})
 
 	t.Log(review.Response)
@@ -231,22 +252,30 @@ func TestServerMountsAllVolumesWhenNoneExist(t *testing.T) {
 func TestServerMountsAllVolumesIfSomeExist(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
-		Request: getDummyRequest("", []byte(`"env": [],`), []byte(`
-								"volumeMounts": [
-									{
-										"mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
-										"name": "default-token-abcde",
-										"readOnly": true
-									}
-								],`), []byte(`"volumes": [
-							{
-								"name": "default-token-abcde",
-								"secret": {
-									"defaultMode": 420,
-									"secretName": "default-token-abcde"
-								}
-							}
-						],`))})
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(`"env": [],`),
+			volumeMounts: []byte(`
+				"volumeMounts": [
+					{
+						"mountPath": "/var/run/secrets/kubernetes.io/serviceaccount",
+						"name": "default-token-abcde",
+						"readOnly": true
+					}
+				],
+			`),
+			volumes: []byte(`
+				"volumes": [
+					{
+						"name": "default-token-abcde",
+						"secret": {
+							"defaultMode": 420,
+							"secretName": "default-token-abcde"
+						}
+					}
+				],
+			`),
+		}),
+	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
 
@@ -258,13 +287,16 @@ func TestServerMountsAllVolumesIfSomeExist(t *testing.T) {
 func TestServerMountsNeededVolumes(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
-		Request: getDummyRequest("", []byte(`
-								"env": [
-									{
-										"name": "HOME",
-										"value": "/foobar"
-									}
-								],`), nil, nil),
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(`
+				"env": [
+					{
+						"name": "HOME",
+						"value": "/foobar"
+					}
+				],
+			`),
+		}),
 	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
@@ -277,7 +309,9 @@ func TestServerMountsNeededVolumes(t *testing.T) {
 func TestServerSetsHOMEIfNotSet(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
-		Request:  getDummyRequest("", []byte(``), nil, nil),
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(``),
+		}),
 	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
@@ -301,13 +335,16 @@ func TestServerSetsHOMEIfNotSet(t *testing.T) {
 func TestServerDoesNotChangeHOMEIfSet(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
-		Request: getDummyRequest("", []byte(`
-										"env": [
-											{
-												"name": "HOME",
-												"value": "original value"
-											}
-										],`), nil, nil),
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(`
+				"env": [
+					{
+						"name": "HOME",
+						"value": "original value"
+					}
+				],
+			`),
+		}),
 	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
@@ -326,12 +363,16 @@ func TestServerDoesNotAddHOMEifNO_HOMESet(t *testing.T) {
 		TypeMeta: v1.TypeMeta{
 			Kind: "AdmissionReview",
 		},
-		Request: getDummyRequest("", []byte(`"env": [
-			{
-				"name": "NO_HOME",
-				"value": "dummy"
-			}
-		],`), nil, nil),
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(`
+				"env": [
+					{
+						"name": "NO_HOME",
+						"value": "dummy"
+					}
+				],
+			`),
+		}),
 	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
@@ -350,12 +391,16 @@ func TestServerRemovesWorkingDirIfNO_HOMESet(t *testing.T) {
 		TypeMeta: v1.TypeMeta{
 			Kind: "AdmissionReview",
 		},
-		Request: getDummyRequest("", []byte(`"env": [
-			{
-				"name": "NO_HOME",
-				"value": "dummy"
-			}
-		],`), nil, nil),
+		Request: getDummyRequest(dummyRequestParams{
+			env: []byte(`
+				"env": [
+					{
+						"name": "NO_HOME",
+						"value": "dummy"
+					}
+				],
+			`),
+		}),
 	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
