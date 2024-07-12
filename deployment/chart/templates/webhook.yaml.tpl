@@ -19,7 +19,9 @@ webhooks:
     objectSelector:
       {{ .Values.webhook.objectSelector | toYaml | nindent 6 }}
     rules:
-      - operations: ["CREATE", "UPDATE"]
+      # only CREATE and not UPDATE, because most fields in a Pod are immutable
+      # see https://kubernetes.io/docs/concepts/workloads/pods/#pod-update-and-replacement
+      - operations: ["CREATE"]
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
