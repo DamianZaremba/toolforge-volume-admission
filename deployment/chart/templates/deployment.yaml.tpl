@@ -20,6 +20,13 @@ spec:
         # ensure the pod gets restarted when config changes
         volume-admission.tools.wmcloud.org/config-checksum: {{ .Values.volumes | toJson | sha256sum }}
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              name: volume-admission
       containers:
         - name: webhook
           image: "{{ .Values.image.name }}:{{ .Values.image.tag }}"
