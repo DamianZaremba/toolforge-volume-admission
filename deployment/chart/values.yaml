@@ -60,6 +60,10 @@ volumes:
     path: "/etc/novaobserver.yaml"
     type: File
     readOnly: true
+  - name: etc-openstack-clouds-yaml
+    path: "/etc/openstack/clouds.yaml"
+    type: File
+    readOnly: true
   - name: sssd-pipes
     path: "/var/lib/sss/pipes"
     type: Directory
