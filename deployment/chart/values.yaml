@@ -16,9 +16,12 @@ resources:
 webhook:
   secretName: volume-admission-certs
   failurePolicy: Ignore
-  objectSelector:
-    matchLabels:
-      toolforge: tool
+  namespaceSelector:
+    matchExpressions:
+      - key: tenancy
+        operator: In
+        values:
+          - tool
 
 volumes:
   - name: dumps

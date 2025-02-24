@@ -78,7 +78,7 @@ func getDummyRequest(params dummyRequestParams) *admissionv1.AdmissionRequest {
 				"apiVersion": "v1",
 				"metadata": {
 					"name": "maintain-kubeusers-123123123",
-					"namespace": "maintain-kubeusers",
+					"namespace": "tool-test-toolname",
 					"uid": "4b54be10-8d3c-11e9-8b7a-080027f5f85c",
 					"creationTimestamp": "2019-06-12T18:02:51Z",
 					"labels": {`)
@@ -172,20 +172,24 @@ func assertAllowedAndGetPatch(review *admissionv1.AdmissionReview, err error, t 
 
 	if err != nil {
 		t.Error(err)
+		t.FailNow()
 	}
 
 	if !review.Response.Allowed {
 		t.Error("Should not disallow tools with no HOME")
+		t.FailNow()
 	}
 
 	if *review.Response.PatchType != admissionv1.PatchTypeJSONPatch {
 		t.Error("Wrong patch type found")
+		t.FailNow()
 	}
 
 	var p []PatchOperation
 	err = json.Unmarshal(review.Response.Patch, &p)
 	if err != nil {
 		t.Error(err)
+		t.FailNow()
 	}
 	return p
 }
@@ -261,7 +265,7 @@ func TestServerMountsAllVolumesWhenNoneExist(t *testing.T) {
 	}
 }
 
-func TestServerMountsAllVolumesIfSomeExist(t *testing.T) {
+func TestServerMountsAllVolumesIfHomeAlreadySet(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
 		Request: getDummyRequest(dummyRequestParams{
@@ -278,21 +282,20 @@ func TestServerMountsAllVolumesIfSomeExist(t *testing.T) {
 			volumes: []byte(`
 				"volumes": [
 					{
-						"name": "default-token-abcde",
-						"secret": {
-							"defaultMode": 420,
-							"secretName": "default-token-abcde"
+						"name": "home",
+						"hostPath": {
+							"path": "/data/project",
+							"type": "Directory"
 						}
 					}
-				],
-			`),
+			],`),
 		}),
 	})
 
 	var p = assertAllowedAndGetPatch(review, err, t)
 
-	if len(p) != 8 {
-		t.Errorf("Patch length %d does not match expected value of 8, got patches:\n%s", len(p), p)
+	if len(p) != 6 {
+		t.Errorf("Patch length %d does not match expected value of 6, got patches:\n%s", len(p), p)
 	}
 }
 
@@ -470,7 +473,7 @@ func TestServerRemovesWorkingDirIfNO_HOMESet(t *testing.T) {
 	}
 }
 
-func TestServerIgnoresWhenLabelsInstructsToDoThat(t *testing.T) {
+func TestServerDoesNothingWhenLabelMountStorageIsNone(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
 		Request: getDummyRequest(dummyRequestParams{
@@ -483,7 +486,7 @@ func TestServerIgnoresWhenLabelsInstructsToDoThat(t *testing.T) {
 	p := assertAllowedAndGetPatch(review, err, t)
 
 	if len(p) != 0 {
-		t.Error("Should not contain anything to patch when nothing is done")
+		t.Errorf("Should not contain any volumes when mount-storage: none is passed, got %d patches", len(p))
 	}
 }
 
@@ -505,6 +508,42 @@ func TestServerFailsOnInvalidLabelValue(t *testing.T) {
 
 	if review.Response.Allowed {
 		t.Error("Should not allow allow invalid label values")
+	}
+
+	if review.Response.Patch != nil {
+		t.Error("Should not contain patch when not allowed")
+	}
+}
+
+func TestDeniesExtraHostPathVolumes(t *testing.T) {
+	review, err := getResponse(admissionv1.AdmissionReview{
+		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
+		Request: getDummyRequest(dummyRequestParams{
+			labels: []byte(`
+				"toolforge.org/mount-storage": "all"
+			`),
+			volumes: []byte(`
+				"volumes": [
+					{
+						"name": "trying-something-nasty",
+						"hostPath": {
+							"path": "/home/project/some-other-tool",
+							"type": "Directory"
+						}
+					}
+				],
+			`),
+		}),
+	})
+
+	t.Log(review.Response)
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	if review.Response.Allowed {
+		t.Error("Should not allow extra hostPath volumes")
 	}
 
 	if review.Response.Patch != nil {

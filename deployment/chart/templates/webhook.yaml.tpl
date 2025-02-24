@@ -16,8 +16,8 @@ webhooks:
     matchPolicy: Equivalent
     sideEffects: None
     admissionReviewVersions: ["v1"]
-    objectSelector:
-      {{ .Values.webhook.objectSelector | toYaml | nindent 6 }}
+    namespaceSelector:
+      {{ .Values.webhook.namespaceSelector | toYaml | nindent 6 }}
     rules:
       # only CREATE and not UPDATE, because most fields in a Pod are immutable
       # see https://kubernetes.io/docs/concepts/workloads/pods/#pod-update-and-replacement

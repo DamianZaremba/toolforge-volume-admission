@@ -118,25 +118,6 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 		return
 	}
 
-	if mountConfig == MountNone {
-		patchType := admissionv1.PatchTypeJSONPatch
-		response := &admissionv1.AdmissionResponse{
-			UID:       review.Request.UID,
-			Allowed:   true,
-			PatchType: &patchType,
-			Result: &metav1.Status{
-				Message: "No volumes requested",
-			},
-		}
-
-		// Add an empty patch
-		response.Patch, err = json.Marshal([]PatchOperation{})
-
-		review.Response = response
-
-		return
-	}
-
 	if !strings.HasPrefix(req.Namespace, "tool-") {
 		logrus.Warningf("Skipping non-tool namespace %v", req.Namespace)
 
@@ -150,19 +131,65 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 		return
 	}
 
-	toolName := strings.Replace(req.Namespace, "tool-", "", 1)
+	var patches []PatchOperation
 
-	var p []PatchOperation
-
-	// If there are no volumes, json-patch will fail unless we add it with
-	// an op.
-	if len(pod.Spec.Volumes) == 0 {
-		patch := PatchOperation{
+	// Deny the request if we find any hostPath volume, as we only allow
+	// toolforge managed ones
+	if len(pod.Spec.Volumes) != 0 {
+		for idx, volume := range pod.Spec.Volumes {
+			if volume.HostPath != nil {
+				// home might be added already, so skip if it's ok
+				// note that we mount all the tools homes as tools should be able to read from others
+				if volume.Name != "home" || volume.HostPath.Path != "/data/project" {
+					review.Response = &admissionv1.AdmissionResponse{
+						UID:     review.Request.UID,
+						Allowed: false,
+						Result: &metav1.Status{
+							Message: fmt.Sprintf(
+								"No hostPath volumes allowed, got one under /spec/volumes/%d Name:%s HostPath:%s",
+								idx,
+								volume.Name,
+								volume.HostPath,
+							),
+						},
+					}
+					return
+				}
+			}
+		}
+	} else {
+		// initialize if it's not there
+		patches = append(patches, PatchOperation{
 			Op:    "add",
 			Path:  "/spec/volumes",
 			Value: []string{},
+		})
+	}
+
+	if mountConfig == MountNone {
+		patchType := admissionv1.PatchTypeJSONPatch
+		response := &admissionv1.AdmissionResponse{
+			UID:       review.Request.UID,
+			PatchType: &patchType,
+			Allowed:   true,
+			Result: &metav1.Status{
+				Message: "No volumes requested",
+			},
 		}
-		p = append(p, patch)
+
+		response.Patch, err = json.Marshal(patches)
+		if err != nil {
+			logrus.Errorf("Could not marshal patch object: %v", err)
+			review.Response = &admissionv1.AdmissionResponse{
+				UID: review.Request.UID,
+				Result: &metav1.Status{
+					Message: err.Error(),
+				},
+			}
+		}
+
+		review.Response = response
+		return
 	}
 
 	for i, container := range pod.Spec.Containers {
@@ -174,7 +201,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 				Path:  fmt.Sprintf("/spec/containers/%d/volumeMounts", i),
 				Value: []string{},
 			}
-			p = append(p, patch)
+			patches = append(patches, patch)
 		}
 	}
 
@@ -197,7 +224,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 				Name: volume.Name,
 			},
 		}
-		p = append(p, patch)
+		patches = append(patches, patch)
 
 		for i, container := range pod.Spec.Containers {
 			// Ignore pods that already have this volume mounted
@@ -214,7 +241,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 					ReadOnly:  volume.ReadOnly,
 				},
 			}
-			p = append(p, patch)
+			patches = append(patches, patch)
 		}
 	}
 
@@ -226,7 +253,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 				Path:  fmt.Sprintf("/spec/containers/%d/env", i),
 				Value: []corev1.EnvVar{},
 			}
-			p = append(p, patch)
+			patches = append(patches, patch)
 		}
 
 		// If $HOME is already set don't overwrite it
@@ -243,32 +270,28 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 					Op:   "remove",
 					Path: fmt.Sprintf("/spec/containers/%d/workingDir", i),
 				}
-				p = append(p, patch)
+				patches = append(patches, patch)
 			}
 		}
 
+		toolName := strings.Replace(req.Namespace, "tool-", "", 1)
+		toolHome := fmt.Sprintf("/data/project/%v", toolName)
 		if !skipSettingHome {
 			patch := PatchOperation{
-				Op:   "add",
-				Path: fmt.Sprintf("/spec/containers/%d/env/-", i),
-				Value: &corev1.EnvVar{
-					Name:  "HOME",
-					Value: fmt.Sprintf("/data/project/%v", toolName),
-				},
+				Op:    "add",
+				Path:  fmt.Sprintf("/spec/containers/%d/env/-", i),
+				Value: &corev1.EnvVar{Name: "HOME", Value: toolHome},
 			}
-			p = append(p, patch)
+			patches = append(patches, patch)
 		}
 
 		// Always add the TOOL_DATA_DIR env var
 		patch := PatchOperation{
-			Op:   "add",
-			Path: fmt.Sprintf("/spec/containers/%d/env/-", i),
-			Value: &corev1.EnvVar{
-				Name:  "TOOL_DATA_DIR",
-				Value: fmt.Sprintf("/data/project/%v", toolName),
-			},
+			Op:    "add",
+			Path:  fmt.Sprintf("/spec/containers/%d/env/-", i),
+			Value: &corev1.EnvVar{Name: "TOOL_DATA_DIR", Value: toolHome},
 		}
-		p = append(p, patch)
+		patches = append(patches, patch)
 
 	}
 
@@ -280,7 +303,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 			Value: map[string]string{},
 		}
 
-		p = append(p, patch)
+		patches = append(patches, patch)
 	}
 
 	if _, exists := pod.Spec.NodeSelector["kubernetes.wmcloud.org/nfs-mounted"]; !exists {
@@ -290,7 +313,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 			Value: "true",
 		}
 
-		p = append(p, patch)
+		patches = append(patches, patch)
 	}
 
 	patchType := admissionv1.PatchTypeJSONPatch
@@ -305,7 +328,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 	}
 
 	// parse the []map into JSON
-	response.Patch, err = json.Marshal(p)
+	response.Patch, err = json.Marshal(patches)
 	if err != nil {
 		logrus.Errorf("Could not marshal patch object: %v", err)
 		review.Response = &admissionv1.AdmissionResponse{
@@ -319,5 +342,4 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 	}
 
 	review.Response = response
-	return
 }
