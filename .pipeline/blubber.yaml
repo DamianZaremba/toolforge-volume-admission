@@ -1,6 +1,6 @@
-# syntax=docker-registry.wikimedia.org/repos/releng/blubber/buildkit:v0.19.0
+# syntax=docker-registry.wikimedia.org/repos/releng/blubber/buildkit:v0.24.0
 version: v4
-base: docker-registry.wikimedia.org/golang1.19
+base: docker-registry.wikimedia.org/golang1.24
 variants:
   download-deps:
     lives:
