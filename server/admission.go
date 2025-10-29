@@ -83,6 +83,59 @@ func hasEnvVarSet(container *corev1.Container, envVar string) bool {
 	return false
 }
 
+func getNodeAffinityPatches(pod corev1.Pod) []PatchOperation {
+	var patches []PatchOperation
+
+	// Generate an anti-node affinity, asking the scheduler to try and use non nfs nodes
+	if pod.Spec.Affinity == nil {
+		pod.Spec.Affinity = &corev1.Affinity{}
+		patch := PatchOperation{
+			Op:    "add",
+			Path:  "/spec/affinity",
+			Value: &corev1.Affinity{},
+		}
+		patches = append(patches, patch)
+	}
+
+	if pod.Spec.Affinity.NodeAffinity == nil {
+		pod.Spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
+		patch := PatchOperation{
+			Op:    "add",
+			Path:  "/spec/affinity/nodeAffinity",
+			Value: &corev1.NodeAffinity{},
+		}
+		patches = append(patches, patch)
+	}
+
+	if len(pod.Spec.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution) == 0 {
+		patch := PatchOperation{
+			Op:    "add",
+			Path:  "/spec/affinity/nodeAffinity/preferredDuringSchedulingIgnoredDuringExecution",
+			Value: []corev1.PreferredSchedulingTerm{},
+		}
+		patches = append(patches, patch)
+	}
+
+	patch := PatchOperation{
+		Op:   "add",
+		Path: "/spec/affinity/nodeAffinity/preferredDuringSchedulingIgnoredDuringExecution/-",
+		Value: &corev1.PreferredSchedulingTerm{
+			Weight: 100,
+			Preference: corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					{
+						Key:      "kubernetes.wmcloud.org/nfs-mounted",
+						Operator: corev1.NodeSelectorOpNotIn,
+						Values:   []string{"true"},
+					},
+				},
+			},
+		},
+	}
+
+	return append(patches, patch)
+}
+
 // HandleAdmission has all the webhook logic to possibly mount volumes
 // to containers if needed
 func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionReview) {
@@ -176,6 +229,8 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 				Message: "No volumes requested",
 			},
 		}
+
+		patches = append(patches, getNodeAffinityPatches(pod)...)
 
 		response.Patch, err = json.Marshal(patches)
 		if err != nil {
