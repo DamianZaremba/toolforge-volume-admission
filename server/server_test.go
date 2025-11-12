@@ -473,7 +473,7 @@ func TestServerRemovesWorkingDirIfNO_HOMESet(t *testing.T) {
 	}
 }
 
-func TestServerDoesNothingWhenLabelMountStorageIsNone(t *testing.T) {
+func TestServerAppliesNodeAffinityWhenLabelMountStorageIsNone(t *testing.T) {
 	review, err := getResponse(admissionv1.AdmissionReview{
 		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
 		Request: getDummyRequest(dummyRequestParams{
@@ -483,10 +483,36 @@ func TestServerDoesNothingWhenLabelMountStorageIsNone(t *testing.T) {
 		}),
 	})
 
-	p := assertAllowedAndGetPatch(review, err, t)
+	patches := assertAllowedAndGetPatch(review, err, t)
 
-	if len(p) != 0 {
-		t.Errorf("Should not contain any volumes when mount-storage: none is passed, got %d patches", len(p))
+	for _, patch := range patches {
+		if !strings.HasPrefix(patch.Path, "/spec/affinity") {
+			t.Errorf("Got a patch not adjusting the affinity: %+v", patch)
+		}
+	}
+}
+
+func TestServerAppliesNodeSelectorWhenLabelMountStorageIsAll(t *testing.T) {
+	review, err := getResponse(admissionv1.AdmissionReview{
+		TypeMeta: v1.TypeMeta{Kind: "AdmissionReview"},
+		Request: getDummyRequest(dummyRequestParams{
+			labels: []byte(`
+				"toolforge.org/mount-storage": "all"
+			`),
+		}),
+	})
+
+	patches := assertAllowedAndGetPatch(review, err, t)
+
+	foundNodeSelector := false
+	for _, patch := range patches {
+		if !strings.HasPrefix(patch.Path, "/spec/nodeSelector/") {
+			foundNodeSelector = true
+		}
+	}
+
+	if !foundNodeSelector {
+		t.Errorf("Found no nodeSelector in patches: %+v", patches)
 	}
 }
 
