@@ -506,7 +506,7 @@ func TestServerAppliesNodeSelectorWhenLabelMountStorageIsAll(t *testing.T) {
 
 	foundNodeSelector := false
 	for _, patch := range patches {
-		if !strings.HasPrefix(patch.Path, "/spec/nodeSelector/") {
+		if strings.HasPrefix(patch.Path, "/spec/nodeSelector/") {
 			foundNodeSelector = true
 		}
 	}
