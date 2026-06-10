@@ -27,8 +27,9 @@ variants:
     builders:
       - custom:
           command:
-            - make
-            - build
+            - /bin/bash
+            - -c
+            - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -a -installsuffix cgo -ldflags="-w -s" -o volume-admission ./main.go
 
   image:
     lives:
