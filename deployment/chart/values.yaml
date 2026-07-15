@@ -36,6 +36,10 @@ volumes:
     path: "/mnt/nfs/dumps-clouddumps1002.wikimedia.org"
     type: Directory
     readOnly: true
+  - name: dumpsrc-dumps-nfs
+    path: "/mnt/nfs/dumps"
+    type: Directory
+    readOnly: true
   - name: home
     path: "/data/project"
     type: Directory
