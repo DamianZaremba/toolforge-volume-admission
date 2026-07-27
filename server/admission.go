@@ -287,6 +287,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 				continue
 			}
 
+			propagation := corev1.MountPropagationHostToContainer
 			patch := PatchOperation{
 				Op:   "add",
 				Path: fmt.Sprintf("/spec/containers/%d/volumeMounts/-", i),
@@ -294,6 +295,7 @@ func (admission *VolumeAdmission) HandleAdmission(review *admissionv1.AdmissionR
 					MountPath: volume.Path,
 					Name:      volume.Name,
 					ReadOnly:  volume.ReadOnly,
+					MountPropagation: &propagation,
 				},
 			}
 			patches = append(patches, patch)
